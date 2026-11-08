@@ -1,0 +1,12 @@
+numpy
+scipy
+shapely>=2.0
+pyproj
+osmium
+rasterio
+pillow
+pyshp
+remotezip
+requests
+lightgbm
+scikit-learn
