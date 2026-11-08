@@ -43,7 +43,6 @@ const FS = /* glsl */ `
 in vec3 vWorld;
 in float vDist;
 out vec4 fragColor;
-uniform float uReflectPass;
 ${COMMON}
 ${ATMO_PARAMS}
 ${ATMO_RUNTIME}

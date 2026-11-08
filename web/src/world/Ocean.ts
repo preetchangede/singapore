@@ -25,7 +25,8 @@ vec2 waveSlope(vec2 p, float t, float filt) {
   for (int i = 0; i < 9; i++) {
     float w = freq * TAU;
     float ph = dot(dir, p) * w + t * sqrt(9.81 * w) + float(i) * 1.7;
-    float att = exp(-freq * filt);              // remove waves smaller than the pixel footprint
+    // remove waves near/below the pixel footprint (Gaussian cutoff around Nyquist: no moire arcs)
+    float att = exp(-sq(freq * filt * 1.6));
     s += dir * (amp * w * cos(ph)) * att;
     // rotate direction, shrink & speed up
     dir = mat2(0.737, 0.676, -0.676, 0.737) * dir;
@@ -100,7 +101,7 @@ void main() {
   foam *= smoothstep(0.35, 0.7, vnoise(wp.xz * 0.35 + t * 0.2));
   col = mix(col, (sun * saturate(L.y) * sh + Eamb) * 0.55 / PI, foam * 0.6 * smoothstep(800.0, 50.0, dist));
   // city lights glimmer on the water at night
-  col += vec3(0.010, 0.006, 0.003) * uNight * uSunIntensity * 0.02 * F;
+  col += vec3(0.009, 0.0075, 0.006) * uNight * uSunIntensity * 0.02 * F;
   col = applyAerial(col, wp);
   fragColor = vec4(col, 1.0);
 }

@@ -16,6 +16,7 @@ import { Reflection } from './world/Reflection';
 import { Landmarks } from './world/Landmarks';
 import { Clouds } from './world/Clouds';
 import { Traffic } from './world/Traffic';
+import { Ships } from './world/Ships';
 import { Tier, detectTier, Governor } from './core/Quality';
 import {
   Manifest, loadManifest, fetchGz, decodeHeights, heightTexture, byteTexture, loadImageTexture, HeightField,
@@ -42,6 +43,7 @@ export class App {
   landmarks!: Landmarks;
   clouds!: Clouds;
   traffic!: Traffic;
+  ships!: Ships;
   private shadowMat = makeShadowMaterial();
   manifest!: Manifest;
   heights!: HeightField;
@@ -171,6 +173,10 @@ export class App {
     await this.landmarks.load();
     this.scene.add(this.landmarks.group);
     this.shadowHooks.push((on) => this.landmarks.setDepthMode(on));
+    this.ships = new Ships();
+    await this.ships.load().catch((e) => console.warn('ships unavailable', e));
+    this.scene.add(this.ships.group);
+    this.shadowHooks.push((on) => this.ships.setDepthMode(on));
     this.tiles.onGroundRemoved = (t) => this.clipmap.removeTile(t);
     progress(0.94, 'Raising the skyline');
     await this.tiles.loadOverview((f) => progress(0.94 + 0.05 * f, 'Raising the skyline'));
@@ -261,6 +267,9 @@ export class App {
     this.traffic.update(U.uTime.value, this.camera, this.time.hour);
     buildingUniforms.uHour.value = this.time.hour;
     this.landmarks.update(U.uTime.value, this.time.hour);
+    const epochHours = Date.UTC(this.time.year, this.time.month - 1, this.time.day) / 3.6e6 + this.time.hour;
+    this.ships.update(U.uTime.value, epochHours, this.time.hour,
+      this.hdr.height / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)));
     if (!render) return;
     this.clipmap.update(this.camera, alt, performance.now());
     this.shadows.update(this.camera, alt, [], this.scene, (on) => this.swapShadow(on));

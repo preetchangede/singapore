@@ -72,6 +72,8 @@ void transmittanceParams(vec2 uv, out float viewHeight, out float cosZ) {
 }
 
 float fromUnitToSubUv(float u, float res) { return (u + 0.5 / res) * (res / (res + 1.0)); }
+// maps 0..1 onto the first..last texel centres (exact inverse of (px + 0.5) / res -> px / (res - 1))
+float unitToTexel(float u, float res) { return (u * (res - 1.0) + 0.5) / res; }
 float fromSubUvToUnit(float u, float res) { return (u - 0.5 / res) * (res / (res - 1.0)); }
 `;
 
@@ -166,6 +168,7 @@ uniform float uViewHeight;   // km from planet centre
 uniform float uSunCosZ;      // cos of sun zenith angle at camera
 uniform float uMoonCosZ;
 uniform float uMoonLightViewCos; // unused placeholder (moon handled separately)
+uniform float uHaze;
 out vec4 fragColor;
 
 vec3 msLookup(float h, float cz) {
@@ -224,6 +227,9 @@ void main() {
     float ph = length(P);
     vec3 up = P / ph;
     Medium m = sampleMedium(ph - RG);
+    // humid boundary-layer haze (same layer as opticalDepth() and the aerial LUT)
+    float hz = uHaze * exp(-max(ph - RG, 0.0) / 0.35);
+    m.scatM += uMieScat * hz; m.scat += uMieScat * hz; m.ext += uMieExt * hz;
     vec3 sT = exp(-m.ext * dt);
     float cz = dot(sunDir, up);
     vec3 Tsun = texture(tTransmittance, transmittanceUV(ph, cz)).rgb;
@@ -233,6 +239,79 @@ void main() {
     vec3 ext = max(m.ext, 1e-6);
     L += thr * (S - S * sT) / ext;
     thr *= sT;
+  }
+  fragColor = vec4(L, 1.0);
+}
+`;
+
+// Aerial-perspective LUT (32 azimuth x 64 elevation x 32 distance), at the camera altitude.
+// Integrates single + multiple scattering along the finite camera->point segment, so the
+// haze in front of a building only ever includes the air actually between them. (Estimating
+// it from the full sky radiance breaks at sunset, where the bright horizon glow comes from
+// high, distant air that a nearby building never sees through.) Orientation independent:
+// azimuth is relative to the sun, so reflection passes can use it too.
+export const AERIAL_FS = /* glsl */ `
+uniform sampler2D tTransmittance;
+uniform sampler2D tMultiScat;
+uniform float uViewHeight;   // km from planet centre
+uniform float uSunCosZ;
+uniform float uHaze;
+uniform float uAerialMaxKm;
+uniform float uSlice;
+out vec4 fragColor;
+
+vec3 msLookup(float h, float cz) {
+  vec2 uv = vec2(cz * 0.5 + 0.5, (h - RG) / (RT - RG));
+  uv = vec2(fromUnitToSubUv(uv.x, 32.0), fromUnitToSubUv(uv.y, 32.0));
+  return texture(tMultiScat, uv).rgb;
+}
+// optical depth of an exponential layer along a segment whose altitude runs linearly h0 -> h1
+float layerDepth(float h0, float h1, float d, float H) {
+  h0 = max(h0, 0.0); h1 = max(h1, 0.0);
+  float dh = h1 - h0;
+  float e0 = exp(-h0 / H);
+  if (abs(dh) < 1e-4) return d * e0;
+  return d * H * (e0 - exp(-h1 / H)) / dh;
+}
+
+void main() {
+  float ux = (gl_FragCoord.x - 0.5) / 31.0;
+  float uy = (gl_FragCoord.y - 0.5) / 63.0;
+  float uz = uSlice / 31.0;
+  float lvc = 1.0 - 2.0 * ux * ux;
+  float s = uy * 2.0 - 1.0;
+  float e = sign(s) * s * s * 0.5 * PI;
+  float ce = cos(e);
+  vec3 rd = vec3(ce * lvc, sin(e), ce * sqrt(max(0.0, 1.0 - lvc * lvc)));
+  vec3 sunDir = vec3(sqrt(max(0.0, 1.0 - uSunCosZ * uSunCosZ)), uSunCosZ, 0.0);
+  vec3 ro = vec3(0.0, uViewHeight, 0.0);
+  float d = uAerialMaxKm * uz * uz;
+  float cosT = dot(sunDir, rd);
+  float phM = csPhase(uMieG, cosT), phR = rayleighPhase(cosT);
+  vec3 albM = uMieScat / max(uMieExt, vec3(1e-6));
+  vec3 L = vec3(0.0), thr = vec3(1.0);
+  float ha = uViewHeight - RG;
+  const int N = 16;
+  for (int k = 0; k < N; k++) {
+    float ta = d * float(k) / float(N), tb = d * float(k + 1) / float(N);
+    float dt = tb - ta;
+    float hb = length(ro + rd * tb) - RG;
+    vec3 Pm = ro + rd * (0.5 * (ta + tb));
+    float rm = max(length(Pm), RG + 1e-3);
+    // per-step optical depths are analytic, so thin layers (the 350 m haze) are never skipped
+    vec3 tR = uRayleighScat * layerDepth(ha, hb, dt, uRayleighH);
+    vec3 tM = uMieExt * (layerDepth(ha, hb, dt, uMieH) + uHaze * layerDepth(ha, hb, dt, 0.35));
+    vec3 tO = uOzoneAbs * max(0.0, 1.0 - abs(rm - RG - 25.0) / 15.0) * dt;
+    vec3 tau = tR + tM + tO;
+    float cz = dot(sunDir, Pm / rm);
+    vec3 Tsun = texture(tTransmittance, transmittanceUV(rm, cz)).rgb;
+    float earth = raySphere(Pm, sunDir, RG) >= 0.0 ? 0.0 : 1.0;
+    vec3 sM = tM * albM;
+    vec3 S = earth * Tsun * (tR * phR + sM * phM) + msLookup(rm, cz) * (tR + sM);
+    vec3 st = exp(-tau);
+    L += thr * S * (1.0 - st) / max(tau, vec3(1e-6));
+    thr *= st;
+    ha = hb;
   }
   fragColor = vec4(L, 1.0);
 }
@@ -253,6 +332,9 @@ uniform vec3 uMoonLight;         // moon illuminance (linear)
 uniform float uTime;
 uniform vec2 uWind;
 uniform float uDebug;
+uniform highp sampler3D tAerial;
+uniform float uAerialMaxKm;
+uniform float uReflectPass;
 
 vec2 skyViewUV(vec3 dir) {
   float vh = RG + max(uCamAltKm, 0.001);
@@ -312,26 +394,45 @@ vec3 opticalDepth(float h0, float h1, float d) {
        + uMieExt * uHaze * expDepth(h0, h1, d, 0.35);     // humid boundary-layer haze
 }
 
+// In-scattered light along a straight segment of dKm in direction dir (y up), from the camera.
+vec3 aerialInscatter(vec3 dir, float dKm) {
+  vec2 dh = dir.xz;
+  float l = length(dh);
+  vec2 sh = uSunDir.xz;
+  float ls = length(sh);
+  float lvc = (l > 1e-5 && ls > 1e-5) ? dot(dh / l, sh / ls) : 1.0;
+  float ux = sqrt(max(0.5 - 0.5 * lvc, 0.0));
+  float e = asin(clamp(dir.y, -1.0, 1.0)) / (0.5 * PI);
+  float uy = 0.5 + 0.5 * sign(e) * sqrt(abs(e));
+  float uz = sqrt(clamp(dKm / uAerialMaxKm, 0.0, 1.0));
+  return texture(tAerial, vec3(unitToTexel(ux, 32.0), unitToTexel(uy, 64.0), unitToTexel(uz, 32.0))).rgb * uSunIntensity;
+}
+
 // Aerial perspective: transmittance + in-scattered light between camera and a world point.
 vec3 applyAerial(vec3 color, vec3 wp) {
   if (uDebug > 0.5 && uDebug < 1.5) return color;
   vec3 v = wp - cameraPosition;
   float dm = length(v);
   if (dm < 1.0) return color;
-  vec3 dir = v / dm;
   float d = dm * 0.001;
+  // LUT rays are straight lines over the curved earth: aim at the point's curved position
+  v.y -= dot(v.xz, v.xz) / (2.0 * 6371000.0);
+  vec3 dir = normalize(v);
   float h0 = uCamAltKm;
   float h1 = max(wp.y, 0.0) * 0.001;
-  vec3 T = exp(-opticalDepth(h0, h1, d));
-  // transmittance to the end of the LUT ray (ground or space)
-  float dEnd = dir.y < -0.001 ? min(h0 / -dir.y, 600.0) : 600.0;
-  float hEnd = dir.y < -0.001 ? 0.0 : h0 + dir.y * dEnd;
-  vec3 Tend = exp(-opticalDepth(h0, max(hEnd, 0.0), dEnd));
-  vec3 Ldir = skyRadiance(dir);
-  vec3 inscat = Ldir * (1.0 - T) / max(1.0 - Tend, vec3(1e-3));
-  // night: urban sky glow lifts the haze with sodium/LED orange
-  vec3 cityGlow = vec3(0.014, 0.011, 0.008) * uNight * (1.0 - exp(-d * 0.18));
-  return color * T + inscat + cityGlow * uSunIntensity * 0.02;
+  vec3 T;
+  if (uReflectPass > 0.5) {
+    // mirrored path: down to the water, then up to the point
+    dir.y = -abs(dir.y);
+    float f = h0 / max(h0 + h1, 1e-4);
+    T = exp(-opticalDepth(h0, 0.0, d * f) - opticalDepth(0.0, h1, d * (1.0 - f)));
+  } else {
+    T = exp(-opticalDepth(h0, h1, d));
+  }
+  vec3 inscat = aerialInscatter(dir, d);
+  // night: urban sky glow lifts the haze (mostly LED street lighting now: warm grey, not sodium orange)
+  vec3 cityGlow = vec3(0.0118, 0.0106, 0.0100) * uNight * (1.0 - exp(-d * 0.18));
+  return color * T + inscat + cityGlow * uSunIntensity * 0.01;
 }
 `;
 
@@ -400,7 +501,7 @@ void main() {
   E *= PI / wsum;            // cosine-weighted hemisphere integral
   // moonlit sky + city skyglow ambient at night
   E += uMoonLight * 0.12 * (n.y * 0.5 + 0.5);
-  E += vec3(0.00045, 0.00038, 0.00032) * uNight * uSunIntensity * (0.6 + 0.4 * (-n.y * 0.5 + 0.5));
+  E += vec3(0.00041, 0.00038, 0.00036) * uNight * uSunIntensity * (0.6 + 0.4 * (-n.y * 0.5 + 0.5));
   fragColor = vec4(E, 1.0);
 }
 `;

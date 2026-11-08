@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { COMMON } from '../shaders/common';
-import { ATMO_PARAMS, TRANSMITTANCE_FS, MULTISCAT_FS, SKYVIEW_FS, ATMO_PARAMS_FS } from '../shaders/atmosphere';
+import { ATMO_PARAMS, TRANSMITTANCE_FS, MULTISCAT_FS, SKYVIEW_FS, ATMO_PARAMS_FS, AERIAL_FS } from '../shaders/atmosphere';
 import { U } from '../core/uniforms';
 
 const FS_VERT = /* glsl */ `
@@ -26,10 +26,13 @@ export class Atmosphere {
   private multiScat = rt(32, 32);
   private skyView = rt(192, 108);
   private params: THREE.WebGLRenderTarget;
+  private aerial: THREE.WebGL3DRenderTarget;
   private skyMat: THREE.ShaderMaterial;
   private paramsMat: THREE.ShaderMaterial;
+  private aerialMat: THREE.ShaderMaterial;
   private dirty = true;
   private lastKey = '';
+  private lastAerialKey = '';
 
   constructor(private renderer: THREE.WebGLRenderer) {
     this.params = rt(8, 1, THREE.FloatType);
@@ -50,6 +53,15 @@ export class Atmosphere {
       uViewHeight: { value: 6360.5 }, uSunCosZ: { value: 0.5 }, uMoonCosZ: { value: -0.5 }, uMoonLightViewCos: { value: 0 },
     });
     this.paramsMat = mk(ATMO_PARAMS_FS);
+    this.aerial = new THREE.WebGL3DRenderTarget(32, 64, 32, {
+      type: THREE.HalfFloatType, format: THREE.RGBAFormat, depthBuffer: false, stencilBuffer: false,
+      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false,
+      wrapS: THREE.ClampToEdgeWrapping, wrapT: THREE.ClampToEdgeWrapping,
+    });
+    this.aerial.texture.wrapR = THREE.ClampToEdgeWrapping;
+    this.aerial.texture.colorSpace = THREE.NoColorSpace;
+    this.aerialMat = mk(AERIAL_FS, { uViewHeight: { value: 6360.5 }, uSunCosZ: { value: 0.5 }, uSlice: { value: 0 } });
+    U.tAerial.value = this.aerial.texture;
     U.tTransmittance.value = this.transmittance.texture;
     U.tMultiScat.value = this.multiScat.texture;
     U.tSkyView.value = this.skyView.texture;
@@ -94,6 +106,29 @@ export class Atmosphere {
     this.skyMat.uniforms.uSunCosZ.value = sd.y;
     this.draw(this.skyMat, this.skyView);
     this.draw(this.paramsMat, this.params);
+    this.updateAerial(altKm);
     this.renderer.setRenderTarget(prev);
+  }
+
+  /** Aerial-perspective volume: depends only on sun elevation, haze and camera altitude
+   *  (quantised to ~1.5% so a climbing camera re-renders it a few times, not every frame). */
+  private updateAerial(altKm: number) {
+    const q = Math.round(Math.log(altKm * 1000 + 20) * 66);
+    const qAlt = (Math.exp(q / 66) - 20) * 0.001;
+    const key = `${U.uSunDir.value.y.toFixed(4)},${q},${U.uHaze.value.toFixed(3)},${U.uMieScat.value.x.toFixed(6)}`;
+    if (key === this.lastAerialKey) return;
+    this.lastAerialKey = key;
+    const hKm = Math.max(0.001, qAlt);
+    // reach: well past the horizon from this altitude (the ocean runs out to it)
+    U.uAerialMaxKm.value = 100 + 1.25 * Math.sqrt(2 * 6360 * hKm + hKm * hKm);
+    const m = this.aerialMat;
+    m.uniforms.uViewHeight.value = 6360.0 + hKm;
+    m.uniforms.uSunCosZ.value = U.uSunDir.value.y;
+    this.quad.material = m;
+    for (let z = 0; z < 32; z++) {
+      m.uniforms.uSlice.value = z;
+      this.renderer.setRenderTarget(this.aerial, z);
+      this.renderer.render(this.scene, this.cam);
+    }
   }
 }

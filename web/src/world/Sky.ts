@@ -78,8 +78,10 @@ vec3 skyColour(vec3 d, bool withDisks) {
   // stars (washed out by twilight and by Singapore's light pollution)
   float dark = saturate(1.0 - lum(L) * 4000.0 / max(uSunIntensity, 1e-3));
   L += starField(d) * dark * smoothstep(0.02, 0.25, d.y) * uSunIntensity * 0.00012;
-  // urban skyglow near the horizon at night
-  L += vec3(0.012, 0.0095, 0.0085) * uNight * uSunIntensity * 0.0035 * exp(-max(d.y, 0.0) * 7.0);
+  // urban skyglow: the horizon matches the asymptote of the night haze in applyAerial (the sky is
+  // that haze seen at infinite distance); a light-polluted zenith keeps a faint grey glow
+  float hz = exp(-max(d.y, 0.0) * 7.0);
+  L += (vec3(0.0118, 0.0106, 0.0100) * hz + vec3(0.0016, 0.0022, 0.0042) * (1.0 - hz)) * uNight * uSunIntensity * 0.01;
   return L;
 }
 `;

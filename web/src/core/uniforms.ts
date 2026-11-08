@@ -16,6 +16,8 @@ export const U = {
   tMultiScat: { value: null as THREE.Texture | null },
   tSkyView: { value: null as THREE.Texture | null },
   tAtmoParams: { value: null as THREE.Texture | null },
+  tAerial: { value: null as THREE.Data3DTexture | null },
+  uAerialMaxKm: { value: 150.0 },
   uSunDir: { value: new THREE.Vector3(0, 1, 0) },
   uMoonDir: { value: new THREE.Vector3(0, -1, 0) },
   uMoonLight: { value: new THREE.Vector3(0, 0, 0) },

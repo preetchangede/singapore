@@ -98,8 +98,12 @@ export const PLACES: Place[] = [
     text: 'Built on reclaimed land at the island’s eastern tip; its third runway is being extended into the sea.',
   },
   {
-    id: 'east-coast', name: 'East Coast Park', kind: 'Park', lon: 103.9200, lat: 1.3010, range: 1800, heading: 60, pitch: -18, hour: 17.2,
+    id: 'east-coast', name: 'East Coast Park', kind: 'Park', lon: 103.9255, lat: 1.2985, range: 1700, heading: 150, pitch: -9, hour: 17.2,
     text: 'Fifteen kilometres of beach and parkland on reclaimed shore, facing anchored ships in the strait.',
+  },
+  {
+    id: 'eastern-anchorage', name: 'Eastern Anchorage', kind: 'Singapore Strait', lon: 103.9650, lat: 1.2820, range: 5200, heading: 205, pitch: -13, hour: 19.35,
+    text: 'One of the busiest anchorages on earth: ships wait here to refuel, load and change crew, lying to the tide and lit up like a floating town at night.',
   },
   {
     id: 'pulau-ubin', name: 'Pulau Ubin', kind: 'Island', lon: 103.9612, lat: 1.4092, range: 3800, heading: 250, pitch: -20, hour: 7.4,

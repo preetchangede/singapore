@@ -156,7 +156,7 @@ void main() {
   vec3 moonCol = uMoonLight * 4.0;
   vec3 skyUp = texelFetch(tAtmoParams, ivec2(2, 0), 0).rgb / PI;
   vec3 skyDown = texelFetch(tAtmoParams, ivec2(3, 0), 0).rgb / PI;
-  vec3 cityGlow = vec3(0.016, 0.011, 0.007) * uNight * uSunIntensity * 0.02;
+  vec3 cityGlow = vec3(0.0135, 0.0118, 0.0106) * uNight * uSunIntensity * 0.02;
   vec3 Lacc = vec3(0.0);
   float T = 1.0;
   for (int i = 0; i < 96; i++) {
@@ -180,8 +180,7 @@ void main() {
   // aerial perspective on the clouds: fade into the haze with distance
   float dist = t0 + len * 0.5;
   vec3 Tair = exp(-opticalDepth(uCamAltKm, 1.6, dist * 0.001));
-  vec3 hazeCol = skyRadiance(rd);
-  Lacc = Lacc * Tair + hazeCol * (1.0 - Tair) * (1.0 - T);
+  Lacc = Lacc * Tair + aerialInscatter(rd, dist * 0.001) * (1.0 - T);
   fragColor = vec4(Lacc, T);
 }
 `;
