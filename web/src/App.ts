@@ -269,7 +269,8 @@ export class App {
     this.landmarks.update(U.uTime.value, this.time.hour);
     const epochHours = Date.UTC(this.time.year, this.time.month - 1, this.time.day) / 3.6e6 + this.time.hour;
     this.ships.update(U.uTime.value, epochHours, this.time.hour,
-      this.hdr.height / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)));
+      this.hdr.height / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)),
+      this.camera, this.tier.name === 'low' ? 30000 : 60000);
     if (!render) return;
     this.clipmap.update(this.camera, alt, performance.now());
     this.shadows.update(this.camera, alt, [], this.scene, (on) => this.swapShadow(on));

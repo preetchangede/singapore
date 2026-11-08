@@ -335,7 +335,11 @@ function frigate() {
   return g;
 }
 
-interface Design { type: number; geo: Geo; mesh: THREE.InstancedMesh; seeds: THREE.InstancedBufferAttribute; n: number }
+interface Design {
+  type: number; geo: Geo; mesh: THREE.InstancedMesh; seeds: THREE.InstancedBufferAttribute; n: number;
+  // master copies; each frame the visible ships are compacted into the instance buffers
+  mats: Float32Array; cols: Float32Array; seed: Float32Array; sphere: Float32Array; hidden: Uint8Array;
+}
 
 const HULLS: Record<number, string[]> = {
   [CONTAINER]: ['#1d2a3a', '#2a2d33', '#7a1f1c', '#1f3a5f', '#3c4f3a', '#14181c', '#4a4f57', '#24456b'],
@@ -688,7 +692,10 @@ export class Ships {
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.setColorAt(0, this.c.setRGB(0, 0, 0));
       mesh.count = n;
-      const d: Design = { type, geo, mesh, seeds, n: 0 };
+      const d: Design = {
+        type, geo, mesh, seeds, n: 0, mats: new Float32Array(n * 16), cols: new Float32Array(n * 3),
+        seed: new Float32Array(n), sphere: new Float32Array(n * 4), hidden: new Uint8Array(n),
+      };
       this.designs.push(d);
       if (!this.byType.has(type)) this.byType.set(type, []);
       this.byType.get(type)!.push(d);
@@ -753,8 +760,9 @@ export class Ships {
     };
     const place = (d: Design, seed: number, hull: string) => {
       const slot = d.n++;
-      d.seeds.setX(slot, seed);
-      d.mesh.setColorAt(slot, this.c.set(hull));
+      d.seed[slot] = seed;
+      this.c.set(hull);
+      d.cols.set([this.c.r, this.c.g, this.c.b], slot * 3);
       return slot;
     };
     let wi = 0;
@@ -803,15 +811,58 @@ export class Ships {
     }
     this.lightCount = li;
     lg.setDrawRange(0, li);
-    for (const d of this.designs) { d.mesh.count = d.n; d.seeds.needsUpdate = true; if (d.mesh.instanceColor) d.mesh.instanceColor.needsUpdate = true; }
+    for (const d of this.designs) d.mesh.count = 0;
     this.wakes.count = wi;
     this.loaded = true;
   }
 
   /** world matrix for a ship at (x, z) heading (hx, hz), length scale s, raised by `rise` */
   private setShip(d: Design, slot: number, x: number, z: number, hx: number, hz: number, s: number, rise: number) {
-    this.m.set(hx * s, 0, -hz * s, x, 0, s, 0, rise, hz * s, 0, hx * s, z, 0, 0, 0, 1);
-    d.mesh.setMatrixAt(slot, this.m);
+    // column-major, as three.js stores it
+    const m = d.mats, o = slot * 16;
+    m[o] = hx * s; m[o + 1] = 0; m[o + 2] = hz * s; m[o + 3] = 0;
+    m[o + 4] = 0; m[o + 5] = s; m[o + 6] = 0; m[o + 7] = 0;
+    m[o + 8] = -hz * s; m[o + 9] = 0; m[o + 10] = hx * s; m[o + 11] = 0;
+    m[o + 12] = x; m[o + 13] = rise; m[o + 14] = z; m[o + 15] = 1;
+    d.sphere[slot * 4] = x; d.sphere[slot * 4 + 1] = rise + d.geo.L * s * 0.05; d.sphere[slot * 4 + 2] = z;
+    d.sphere[slot * 4 + 3] = d.geo.L * s * 0.55;
+    d.hidden[slot] = 0;
+  }
+
+  private frustum = new THREE.Frustum();
+  private pv = new THREE.Matrix4();
+  private sph = new THREE.Sphere();
+
+  /** Copy the ships that can be seen into the front of each instance buffer. */
+  private compact(camera: THREE.Camera, maxDist: number) {
+    camera.updateMatrixWorld();
+    this.pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this.frustum.setFromProjectionMatrix(this.pv);
+    const cp = camera.position;
+    for (const d of this.designs) {
+      const im = d.mesh.instanceMatrix.array as Float32Array;
+      const ic = d.mesh.instanceColor!.array as Float32Array;
+      const is = d.seeds.array as Float32Array;
+      let n = 0;
+      for (let i = 0; i < d.n; i++) {
+        if (d.hidden[i]) continue;
+        const sx = d.sphere[i * 4], sy = d.sphere[i * 4 + 1], sz = d.sphere[i * 4 + 2], r = d.sphere[i * 4 + 3];
+        const dist = Math.hypot(sx - cp.x, sy - cp.y, sz - cp.z);
+        // beyond ~4 px wide (and the haze) a ship is not worth its triangles
+        if (dist - r > Math.min(maxDist, r * 900)) continue;
+        this.sph.center.set(sx, sy, sz);
+        this.sph.radius = r;
+        if (!this.frustum.intersectsSphere(this.sph)) continue;
+        im.set(d.mats.subarray(i * 16, i * 16 + 16), n * 16);
+        ic[n * 3] = d.cols[i * 3]; ic[n * 3 + 1] = d.cols[i * 3 + 1]; ic[n * 3 + 2] = d.cols[i * 3 + 2];
+        is[n] = d.seed[i];
+        n++;
+      }
+      d.mesh.count = n;
+      d.mesh.instanceMatrix.needsUpdate = true;
+      d.mesh.instanceColor!.needsUpdate = true;
+      d.seeds.needsUpdate = true;
+    }
   }
 
   private setLights(first: number, d: Design, x: number, z: number, hx: number, hz: number, s: number, rise: number, nav: boolean) {
@@ -843,7 +894,7 @@ export class Ships {
    * t: simulation seconds; hour: local hour; epochHours: hours since 2000-01-01 (tide phase);
    * pxScale: viewport height / (2 tan(fov/2)) for light sprite sizing.
    */
-  update(t: number, epochHours: number, hour: number, pxScale: number) {
+  update(t: number, epochHours: number, hour: number, pxScale: number, camera: THREE.Camera, maxDist = 60000) {
     if (!this.loaded) return;
     this.lightMat.uniforms.uPxScale.value = pxScale;
 
@@ -902,8 +953,8 @@ export class Ships {
       const z = (this.pa[1] + this.pb[1]) / 2 + hx * mv.off;
       const sc = mv.L / mv.design.geo.L;
       if (!visible) {
+        mv.design.hidden[mv.slot] = 1;
         this.m.makeScale(0, 0, 0);
-        mv.design.mesh.setMatrixAt(mv.slot, this.m);
         this.wakes.setMatrixAt(mv.wake, this.m);
         this.setLights(mv.lights, mv.design, 0, 0, 1, 0, 0, -1e5, false);
         continue;
@@ -919,7 +970,7 @@ export class Ships {
       this.wakes.setMatrixAt(mv.wake, this.m);
       this.wakes.setColorAt(mv.wake, this.c.setRGB(mv.L, mv.B, speed));
     }
-    for (const d of this.designs) d.mesh.instanceMatrix.needsUpdate = true;
+    this.compact(camera, maxDist);
     this.wakes.instanceMatrix.needsUpdate = true;
     if (this.wakes.instanceColor) this.wakes.instanceColor.needsUpdate = true;
     (this.lightPts.geometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
