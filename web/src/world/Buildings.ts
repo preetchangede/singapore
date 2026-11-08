@@ -22,7 +22,7 @@ export function makeBuildingMaterial(overview = false) {
 }
 
 /** Depth-only material for the shadow pass (shared geometry layout). */
-export function makeShadowMaterial(alphaCanopy = false) {
+export function makeShadowMaterial(overviewHide?: THREE.IUniform) {
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
     vertexShader: /* glsl */ `
@@ -40,7 +40,8 @@ export function makeShadowMaterial(alphaCanopy = false) {
     fragmentShader: COMMON + `out vec4 fragColor; void main() { fragColor = vec4(1.0); }`,
     side: THREE.DoubleSide,
     colorWrite: false,
-    defines: alphaCanopy ? { CANOPY: 1 } : {},
+    defines: overviewHide ? { OVERVIEW: 1 } : {},
+    uniforms: overviewHide ? { uHideMask: overviewHide } : {},
   });
 }
 

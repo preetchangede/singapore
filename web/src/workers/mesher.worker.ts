@@ -126,6 +126,13 @@ async function meshTile(tx: number, ty: number, what: 'ground' | 'detail') {
   return { result, transfer };
 }
 
+function setOverview(buf: ArrayBuffer) {
+  const dv = new DataView(buf);
+  const NB = dv.getUint8(6);
+  const table = new Uint32Array(buf.slice(32, 32 + NB * NB * 16 * 8));
+  overview = { dv, table, body: 32 + NB * NB * 16 * 8 };
+}
+
 async function loadOverview() {
   if (overview) return overview;
   const r = await fetch(BASE + 'buildings/overview.bin');
@@ -182,6 +189,8 @@ self.onmessage = async (e: MessageEvent) => {
       const r = await meshTile(m.tx, m.ty, m.what);
       if (!r) { self.postMessage({ type: 'mesh', id: m.id, result: null }); return; }
       self.postMessage({ type: 'mesh', id: m.id, result: r.result }, r.transfer);
+    } else if (m.type === 'overviewData') {
+      setOverview(m.buf);
     } else if (m.type === 'overview') {
       const r = await meshOverview(m.bx, m.by, m.nb);
       self.postMessage({ type: 'overview', id: m.id, result: r.result }, r.transfer);

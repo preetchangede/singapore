@@ -43,6 +43,7 @@ const FS = /* glsl */ `
 in vec3 vWorld;
 in float vDist;
 out vec4 fragColor;
+uniform float uReflectPass;
 ${COMMON}
 ${ATMO_PARAMS}
 ${ATMO_RUNTIME}
@@ -52,6 +53,7 @@ ${LIGHTING}
 ${GROUND_FS}
 void main() {
   vec3 wp = vWorld;
+  if (uReflectPass > 0.5 && wp.y < -0.2) discard;
   vec3 V = normalize(cameraPosition - wp);
   // normal from the height field (texel-scale finite differences)
   float edge = max(abs(wp.x), abs(wp.z)) / uDomainHalf;

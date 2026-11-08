@@ -27,7 +27,7 @@ function detailFor(name: string) {
     default: return D.none;
   }
 }
-const LIGHT: Record<string, number> = { parking: 140, plaza: 120, apron: 160, runway: 60, taxiway: 90, pier: 90, court: 70, playground: 40, commercial: 30, industrial: 25, port: 80 };
+const LIGHT: Record<string, number> = { parking: 110, plaza: 70, apron: 160, runway: 60, taxiway: 90, pier: 70, court: 50, playground: 20, commercial: 30, industrial: 25, port: 80 };
 
 function hash(n: number) {
   n = (n ^ 61) ^ (n >>> 16); n = n + (n << 3); n = n ^ (n >>> 4); n = Math.imul(n, 0x27d4eb2d); n = n ^ (n >>> 15);
@@ -48,10 +48,15 @@ function triangulate(rings: Ring[], out: FlatBuilder, col: number[], mat: number
   for (let i = 0; i < t.length; i += 3) out.tri(base + t[i], base + t[i + 1], base + t[i + 2]);
 }
 
+// zoning classes that don't describe the surface: leave transparent so the overview
+// (WorldCover grass / trees / built-up) shows through
+const GENERIC = new Set(['urban', 'residential', 'commercial', 'industrial', 'institutional', 'port', 'military']);
+
 export function meshAreas(areas: AreaRec[], out: FlatBuilder) {
   areas.forEach((a, i) => {
     const g = GROUND[a.kind];
     if (!g) return;
+    if (GENERIC.has(g.name)) return;
     const v = 0.92 + hash(i * 7 + a.kind) * 0.16;
     const c = GROUND_RGB[a.kind].map((x) => Math.min(255, x * v));
     const mat = [Math.round(g.rough * 255), LIGHT[g.name] ?? 0, g.name === 'pool' ? 200 : 0, detailFor(g.name)];
@@ -108,7 +113,7 @@ const ROAD_RGB: Record<string, number[]> = {
 };
 const ROAD_LIGHT: Record<string, number> = {
   motorway: 255, trunk: 255, primary: 240, secondary: 225, tertiary: 205, minor: 180, service: 120, motorway_link: 230,
-  link: 220, pedestrian: 170, footway: 90, track: 0, busway: 200, cycleway: 70, steps: 60, raceway: 120,
+  link: 220, pedestrian: 120, footway: 40, track: 0, busway: 200, cycleway: 35, steps: 30, raceway: 120,
 };
 
 /** Offset polyline into a triangle strip with mitred joins. */
@@ -272,12 +277,19 @@ export function meshBridges(lines: LineRec[], rail: boolean, out: SolidBuilder, 
     if (!(r.flags & 2) || !r.elev) return;
     const n = r.xs.length;
     if (n < 2) return;
+    const mk = out.mark();
+    try { bridgeOne(r, k); } catch { out.rollback(mk); return; }
+    if (!out.validSince(mk)) out.rollback(mk);
+  });
+  function bridgeOne(r: LineRec, k: number) {
+    const n = r.xs.length;
+    const elev = r.elev!;
     const w = rail ? (r.cls === 1 || r.cls === 3 ? 5.5 : 9.5) : Math.max(r.width, 2.5);
     const thick = rail ? 1.8 : Math.min(1.6, 0.6 + w * 0.06);
     const id = idBase + k;
     // per-vertex deck elevation (absolute)
     const ys: number[] = [];
-    for (let i = 0; i < n; i++) ys.push(heightAt(ox + r.xs[i], oy + r.ys[i]) + r.elev[i] + 0.25);
+    for (let i = 0; i < n; i++) ys.push(heightAt(ox + r.xs[i], oy + r.ys[i]) + elev[i] + 0.25);
     const L: number[][] = [], R: number[][] = [];
     for (let i = 0; i < n; i++) {
       const a = Math.max(0, i - 1), b = Math.min(n - 1, i + 1);
@@ -339,7 +351,7 @@ export function meshBridges(lines: LineRec[], rail: boolean, out: SolidBuilder, 
       }
       acc -= sl;
     }
-  });
+  }
 }
 
 type VFn = (x: number, y: number, z: number, nx: number, ny: number, nz: number, u: number, v: number, c: number[], roof: boolean) => number;

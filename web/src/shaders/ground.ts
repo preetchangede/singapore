@@ -95,6 +95,20 @@ GroundSample sampleGround(vec3 wp, float dist, vec3 N) {
     alb = mix(alb, leaf, wgt * 0.55 * (1.0 - cov * 0.4));
   }
 
+  // Where only the 16 m overview describes the surface (no vector polygon drawn), turn its
+  // colour into plausible material at close range: lawns vs paving, with noisy borders.
+  float near = smoothstep(900.0, 120.0, dist) * (1.0 - cov) * (edge < 1.0 ? 1.0 : 0.0);
+  if (near > 0.001) {
+    float greenness = ov.g - 0.5 * (ov.r + ov.b);
+    float n1 = fbm(xz * 0.08), n2 = vnoise(xz * 0.9);
+    float grassMask = smoothstep(0.0, 0.035, greenness + (n1 - 0.5) * 0.05);
+    vec3 grass = mix(srgbToLinear(vec3(0.34, 0.45, 0.20)), srgbToLinear(vec3(0.46, 0.53, 0.27)), n1) * (0.85 + 0.3 * n2);
+    vec3 pave = mix(srgbToLinear(vec3(0.58, 0.56, 0.52)), srgbToLinear(vec3(0.66, 0.62, 0.56)), n1) * (0.9 + 0.2 * n2);
+    // keep the overall tone of the overview so near & far agree
+    vec3 local = mix(pave, grass, grassMask);
+    local *= clamp(lum(ov) / max(lum(local), 1e-3), 0.6, 1.5);
+    alb = mix(alb, local, near * 0.85);
+  }
   // micro detail: soft large-scale variation + fine grain that fades with distance
   float lf = fbm(xz * 0.0035) - 0.5;
   alb *= 1.0 + lf * 0.18;
@@ -112,8 +126,8 @@ GroundSample sampleGround(vec3 wp, float dist, vec3 N) {
   float farGlow = lights * (1.0 - cov) * (edge < 1.0 ? 1.0 : 0.0);
   vec3 sodium = blackbody(3200.0);
   vec3 led = blackbody(4300.0);
-  vec3 lc = mix(sodium, led, 0.55 + 0.25 * vnoise(xz * 0.002));
-  g.emissive = lc * (pools * 0.045 + farGlow * 0.06) * uNight * uSunIntensity * 0.06;
+  vec3 lc = mix(sodium, led, 0.7 + 0.25 * vnoise(xz * 0.002));
+  g.emissive = lc * (pools * 0.018 + farGlow * 0.03) * uNight * uSunIntensity * 0.06;
   return g;
 }
 `;

@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 .DS_Store
 .vite/
+web/artifact/
+web/artifact-files.json

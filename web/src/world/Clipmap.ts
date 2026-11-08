@@ -82,6 +82,8 @@ export class Clipmap {
       // three needs a 'position' attribute for draw range; alias aPos (unused in shader)
       geo.setAttribute('position', new THREE.BufferAttribute(g.position, 2));
       geo.setIndex(new THREE.BufferAttribute(g.index, 1));
+      // 2D positions: give explicit bounds so three never tries to compute a 3D sphere
+      geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 4096);
       const m = new THREE.Mesh(geo, this.mats[k]);
       m.frustumCulled = false;
       m.renderOrder = k;

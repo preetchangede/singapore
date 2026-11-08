@@ -26,7 +26,7 @@ export const U = {
   uHaze: { value: 2.0 },
   uTime: { value: 0 },
   uWind: { value: new THREE.Vector2(0.8, 0.3) },
-  uExposure: { value: 1.0 },
+  uExposure: { value: 1.12 },
 
   // terrain & ground
   tHeightNear: { value: null as THREE.Texture | null },
@@ -60,6 +60,8 @@ export const U = {
   // water reflections
   tReflection: { value: null as THREE.Texture | null },
   uReflectionOn: { value: 0.0 },
+  uReflMatrix: { value: new THREE.Matrix4() },
+  uReflectPass: { value: 0.0 },
   uResolution: { value: new THREE.Vector2(1, 1) },
 };
 

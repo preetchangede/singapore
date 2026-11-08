@@ -26,6 +26,7 @@ out vec4 fragColor;
 uniform sampler2D tReflection;
 uniform float uReflectionOn;
 uniform vec2 uResolution;
+uniform mat4 uReflMatrix;
 ${COMMON}
 ${ATMO_PARAMS}
 ${ATMO_RUNTIME}
@@ -50,8 +51,8 @@ void main() {
   R.y = abs(R.y) + 0.002;
   vec3 refl = skyRadiance(normalize(R));
   if (uReflectionOn > 0.5) {
-    vec2 suv = gl_FragCoord.xy / uResolution;
-    vec4 pr = texture(tReflection, suv + N.xz * 0.04 * clamp(80.0 / max(dist, 1.0), 0.15, 1.0));
+    vec4 rc = uReflMatrix * vec4(wp, 1.0);
+    vec4 pr = texture(tReflection, rc.xy / rc.w + N.xz * 0.04 * clamp(80.0 / max(dist, 1.0), 0.15, 1.0));
     refl = mix(refl, pr.rgb, pr.a);
   }
   vec3 L = uSunDir;
@@ -62,9 +63,9 @@ void main() {
   vec3 sun = sunLight();
   float sh = sunShadow(wp, vec3(0.0, 1.0, 0.0), dist);
   // canals: murky green-brown; reservoirs: deep green-teal
-  vec3 body = vKind > 2.5 ? srgbToLinear(vec3(0.17, 0.22, 0.16)) : srgbToLinear(vec3(0.07, 0.17, 0.17));
+  vec3 body = vKind > 2.5 ? srgbToLinear(vec3(0.30, 0.36, 0.26)) : srgbToLinear(vec3(0.20, 0.33, 0.31));
   vec3 Eamb = ambientCube(vec3(0.0, 1.0, 0.0));
-  vec3 scatter = body * (sun * saturate(L.y) * sh * 0.5 + Eamb * 0.5) / PI;
+  vec3 scatter = body * (sun * saturate(L.y) * sh * 0.75 + Eamb * 0.85) / PI;
   vec3 col = mix(scatter, refl, F) + sun * spec * sh;
   col = applyAerial(col, wp);
   fragColor = vec4(col, 1.0);

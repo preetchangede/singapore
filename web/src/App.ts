@@ -9,7 +9,11 @@ import { Ocean } from './world/Ocean';
 import { Sky } from './world/Sky';
 import { TileManager } from './streaming/TileManager';
 import { Clipmap } from './world/Clipmap';
-import { buildingUniforms } from './world/Buildings';
+import { buildingUniforms, makeShadowMaterial } from './world/Buildings';
+import { Shadows } from './world/Shadows';
+import { Trees } from './world/Trees';
+import { Reflection } from './world/Reflection';
+import { Landmarks } from './world/Landmarks';
 import {
   Manifest, loadManifest, fetchGz, decodeHeights, heightTexture, byteTexture, loadImageTexture, HeightField,
 } from './data/assets';
@@ -29,6 +33,11 @@ export class App {
   sky!: Sky;
   tiles!: TileManager;
   clipmap!: Clipmap;
+  shadows!: Shadows;
+  trees!: Trees;
+  reflection: Reflection;
+  landmarks!: Landmarks;
+  private shadowMat = makeShadowMaterial();
   manifest!: Manifest;
   heights!: HeightField;
   hdr!: THREE.WebGLRenderTarget;
@@ -54,7 +63,8 @@ export class App {
     this.controller = new CameraController(this.camera, canvas);
     this.post = new Post(this.renderer);
     this.atmosphere = new Atmosphere(this.renderer);
-    this.atmosphere.setHaze(3.2, 2.0);
+    this.reflection = new Reflection(this.renderer);
+    this.atmosphere.setHaze(2.4, 1.6);
     this.atmosphere.bake();
     U.uShadowOn.value = 0;
     window.addEventListener('resize', () => this.resize());
@@ -82,7 +92,7 @@ export class App {
       fetchGz(m.terrain.far.file, track(2.2)),
       fetchGz(m.terrain.coast.file, track(1.7)),
       fetchGz(m.terrain.canopy.file, track(3.7)),
-      loadImageTexture(m.ground.overviewSmall),
+      loadImageTexture(m.ground.overview),
     ]);
     progress(0.92, 'Painting the ground');
     const hn = decodeHeights(near, m.terrain.near.size, m.terrain.near.enc[0], m.terrain.near.enc[1]);
@@ -119,9 +129,28 @@ export class App {
     this.scene.add(this.tiles.group);
     this.clipmap = new Clipmap(this.renderer);
     this.tiles.onGround = (t) => this.clipmap.addTile(t);
+    this.shadows = new Shadows(this.renderer, 2048);
+    this.trees = new Trees();
+    this.scene.add(this.trees.group);
+    U.uTreeRange.value = this.trees.range;
+    this.tiles.onDetail = (t) => {
+      this.shadows.version++;
+      if (t.trees) this.trees.addTile(t.key, t.trees, t.ox, t.oy);
+    };
+    this.tiles.onDetailRemoved = (t) => {
+      this.shadows.version++;
+      this.trees.removeTile(t.key);
+    };
+    this.shadowHooks.push((on) => this.trees.setDepthMode(on));
+    this.landmarks = new Landmarks((x, z) => this.controller.heightAt(x, z));
+    await this.landmarks.load();
+    this.scene.add(this.landmarks.group);
+    this.shadowHooks.push((on) => this.landmarks.setDepthMode(on));
     this.tiles.onGroundRemoved = (t) => this.clipmap.removeTile(t);
     progress(0.94, 'Raising the skyline');
-    await this.tiles.loadOverview();
+    await this.tiles.loadOverview((f) => progress(0.94 + 0.05 * f, 'Raising the skyline'));
+    // night lights (far-field city glow): not needed for the first frame
+    loadImageTexture('ground/lights.jpg').then((t) => { t.colorSpace = THREE.NoColorSpace; t.needsUpdate = true; U.tNightLights.value = t; }).catch(() => {});
     // compile shaders up-front so the intro doesn't stutter
     this.resize();
     progress(0.97, 'Warming up');
@@ -152,6 +181,7 @@ export class App {
       minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false,
     });
     this.post.setSize(bw, bh);
+    this.reflection.setSize(bw, bh);
     U.uResolution.value.set(bw, bh);
   }
 
@@ -191,9 +221,18 @@ export class App {
     this.sky.update(this.camera);
     this.terrain.update(this.camera);
     this.tiles.update(this.camera, alt);
+    this.trees.update(this.camera);
     buildingUniforms.uHour.value = this.time.hour;
+    this.landmarks.update(U.uTime.value, this.time.hour);
     if (!render) return;
     this.clipmap.update(this.camera, alt, performance.now());
+    this.shadows.update(this.camera, alt, [], this.scene, (on) => this.swapShadow(on));
+    if (alt < 3500) {
+      this.reflection.render(this.scene, this.camera, [this.ocean.mesh, this.tiles.water.group],
+        (c) => this.sky.update(c), () => this.sky.update(this.camera));
+    } else {
+      U.uReflectionOn.value = 0;
+    }
     for (const f of this.beforeRender) f(dt);
     this.renderer.setRenderTarget(this.hdr);
     this.renderer.render(this.scene, this.camera);
@@ -201,6 +240,28 @@ export class App {
   }
 
   flyTo(v: View, done?: () => void) { this.controller.flyTo(v, { done }); }
+
+  /** Shadow pass: hide receivers-only, swap casters to depth materials. */
+  private swapShadow(on: boolean) {
+    for (const o of [this.sky.mesh, this.terrain.mesh, this.ocean.mesh, this.tiles.water.group]) o.visible = !on;
+    this.tiles.group.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || o.parent === this.tiles.water.group) return;
+      if (on) {
+        m.userData.mat = m.material;
+        if (m.userData.kind === 'overview') {
+          if (!m.userData.shadowMat) m.userData.shadowMat = makeShadowMaterial((m.material as THREE.ShaderMaterial).uniforms.uHideMask);
+          m.material = m.userData.shadowMat;
+        } else {
+          m.material = this.shadowMat;
+        }
+      } else if (m.userData.mat) {
+        m.material = m.userData.mat;
+      }
+    });
+    for (const f of this.shadowHooks) f(on);
+  }
+  shadowHooks: ((on: boolean) => void)[] = [];
 
   /** Render until streaming has settled (used for deterministic captures). */
   async settle(maxMs = 60000) {

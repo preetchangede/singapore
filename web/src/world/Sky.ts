@@ -79,7 +79,7 @@ vec3 skyColour(vec3 d, bool withDisks) {
   float dark = saturate(1.0 - lum(L) * 4000.0 / max(uSunIntensity, 1e-3));
   L += starField(d) * dark * smoothstep(0.02, 0.25, d.y) * uSunIntensity * 0.00012;
   // urban skyglow near the horizon at night
-  L += vec3(0.020, 0.011, 0.006) * uNight * uSunIntensity * 0.0035 * exp(-max(d.y, 0.0) * 9.0);
+  L += vec3(0.012, 0.0095, 0.0085) * uNight * uSunIntensity * 0.0035 * exp(-max(d.y, 0.0) * 7.0);
   return L;
 }
 `;

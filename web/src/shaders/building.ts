@@ -233,6 +233,24 @@ Facade facade(int cls, vec3 wall, bool glassy, float u, float v, float storey, f
   float w = win * detail;
   vec3 gl = mix(glassCol, wall * 0.25, 0.25);
   if (glassy && cls != 3) gl = mix(wall * 0.45, glassCol, 0.4);
+  // lived-in residential windows: curtains, blinds, open windows, frames, air-con units
+  if (!glassy && (cls == 3 || cls == 4 || cls == 1 || cls == 2 || cls == 11 || cls == 0 || cls == 13)) {
+    float k = fract(rnd * 7.13);
+    vec3 curtain = srgbToLinear(mix(vec3(0.78, 0.74, 0.66), vec3(0.62, 0.70, 0.78), step(0.6, fract(rnd * 3.3))));
+    float folds = 0.85 + 0.15 * sin(fu * 60.0);
+    float blinds = 0.8 + 0.2 * step(0.5, fract(fv * 14.0));
+    if (k < 0.3) gl = mix(gl, curtain * folds, 0.85);
+    else if (k < 0.5) gl = mix(gl, curtain * 0.9 * blinds, 0.8);
+    else if (k < 0.62) gl = srgbToLinear(vec3(0.04, 0.04, 0.045));
+    // light window frame
+    float inner = aaBox(fu, 0.5 - winW / 2.0 + 0.025, 0.5 + winW / 2.0 - 0.025, wu) * aaBox(fv, winB + 0.035, winT - 0.035, wv);
+    gl = mix(wall * 1.05, gl, inner);
+    // air-con compressor on the ledge below some windows
+    if (cls == 3 || cls == 4) {
+      float ac = aaBox(fu, 0.5 + winW / 2.0 + 0.03, 0.5 + winW / 2.0 + 0.2, wu) * aaBox(fv, 0.06, 0.24, wv) * step(0.55, fract(rnd * 11.7));
+      f.albedo = mix(f.albedo, srgbToLinear(vec3(0.72, 0.72, 0.70)), ac * detail);
+    }
+  }
   f.albedo = mix(f.albedo, gl, w);
   f.albedo = mix(f.albedo, mix(f.albedo, gl, glassArea * 0.9), (1.0 - detail) * (glassy ? 0.9 : 0.55));
   f.rough = mix(f.rough, 0.06, w + (1.0 - detail) * glassArea * (glassy ? 0.9 : 0.3));
@@ -248,9 +266,16 @@ Facade facade(int cls, vec3 wall, bool glassy, float u, float v, float storey, f
     // interior gradient: brighter near the ceiling
     float grad = 0.65 + 0.35 * smoothstep(winB, winT, fv);
     vec3 e = lc * lit * inten * grad;
-    float avgLit = pl * 0.8;
-    vec3 eFar = roomLight(fract(seed * 3.1)) * avgLit * glassArea;
-    f.emissive += mix(eFar, e * win, detail);
+    // mid range: randomly lit blocks of 3 bays x 2 floors keep distant towers sparkling
+    float bu = u / (cellW * 3.0), bv = v / (storey * 2.0);
+    float bdet = smoothstep(cellW * 1.6, cellW * 0.7, px);
+    float brnd = hash13(vec3(floor(bu), floor(bv), seed * 131.0 + side * 7.0));
+    float bwin = aaBox(fract(bu), 0.08, 0.92, fwidth(bu) * 1.2 + 1e-4) * aaBox(fract(bv), 0.12, 0.88, fwidth(bv) * 1.2 + 1e-4);
+    vec3 eMid = roomLight(fract(brnd * 17.3 + seed)) * step(brnd, pl) * bwin * glassArea * 1.6 * (0.6 + 0.4 * fract(brnd * 9.1));
+    // far: a faint average (an even glow would read as floodlit walls)
+    vec3 eFar = roomLight(fract(seed * 3.1)) * pl * glassArea * 0.22;
+    vec3 eAway = mix(eFar, eMid, bdet);
+    f.emissive += mix(eAway, e * win, detail);
   }
   return f;
 }
@@ -278,6 +303,28 @@ void main() {
     float stain = fbm(wp.xz * 0.15 + wp.y * 0.3);
     albedo = base * (0.88 + 0.2 * stain);
     rough = 0.9;
+  } else if ((cls == 30 || cls == 31) && isRoof) {
+    // Esplanade sunshades (30) / glass gridshell domes (31): lattice in spherical coordinates
+    vec2 g2 = vec2(dot(wp.xz, vec2(0.866, 0.5)), dot(wp.xz, vec2(-0.866, 0.5))) / (cls == 30 ? 2.2 : 3.4);
+    vec2 g3 = vec2(wp.x, wp.z) / (cls == 30 ? 2.2 : 3.4);
+    float wl = fwidth(g2.x) * 1.5 + 0.02;
+    float l1 = 1.0 - aaBox(fract(g2.x + wp.y * 0.12), 0.05, 0.95, wl);
+    float l2 = 1.0 - aaBox(fract(g2.y + wp.y * 0.12), 0.05, 0.95, wl);
+    float l3 = 1.0 - aaBox(fract(g3.x * 0.5 + wp.y * 0.1), 0.05, 0.95, wl);
+    float lattice = max(max(l1, l2), cls == 30 ? l3 : 0.0);
+    float lat = smoothstep(0.5, 0.1, fwidth(g2.x));
+    if (cls == 30) {
+      // spiky aluminium shades: facets alternate light/dark with the sun direction
+      float facet = step(0.5, fract(g2.x + g2.y * 0.5));
+      albedo = base * mix(0.7, 1.15, facet * lat + (1.0 - lat) * 0.5);
+      albedo = mix(albedo, base * 0.5, lattice * lat);
+      rough = 0.55; f0 = 0.08;
+    } else {
+      albedo = mix(srgbToLinear(vec3(0.18, 0.22, 0.24)), base * 0.85, lattice * lat + (1.0 - lat) * 0.3);
+      rough = mix(0.08, 0.5, lattice); f0 = 0.06;
+      glassMask = (1.0 - lattice * lat) * 0.85;
+      emissive = vec3(0.9, 1.0, 0.8) * 0.25 * (1.0 - lattice);   // interior gardens glow at night
+    }
   } else if (isRoof && N.y > 0.2) {
     if (N.y < 0.97) {
       // pitched clay-tile roof: courses along the contour
@@ -314,7 +361,7 @@ void main() {
     float F = f0 + (1.0 - f0) * pow(1.0 - NoV, 5.0);
     col += env * F * glassMask * 1.6;
   }
-  col += emissive * uNight * uSunIntensity * 0.0011;
+  col += emissive * uNight * uSunIntensity * 0.0075;
   if (uHighlight > 0.5) col += vec3(0.02, 0.05, 0.08) * uSunIntensity * 0.02;
   col = applyAerial(col, wp);
   fragColor = vec4(col, 1.0);

@@ -3,7 +3,7 @@ import { WorkerPool } from './WorkerPool';
 import { makeBuildingMaterial, solidGeometry } from '../world/Buildings';
 import { Water } from '../world/Water';
 import type { Manifest } from '../data/assets';
-import { DATA_BASE } from '../data/assets';
+import { DATA_BASE, fetchGz } from '../data/assets';
 import type { SolidGeom, FlatGeom } from '../workers/builder';
 import type { BuildingInfo } from '../workers/buildings';
 
@@ -58,11 +58,17 @@ export class TileManager {
   }
 
   /** Request the far-LOD building meshes for every bundle (cheap, ~2.7 MB total). */
-  loadOverview(onProgress?: (f: number) => void) {
+  async loadOverview(onProgress?: (f: number) => void) {
     const list = this.manifest.bundles;
     let done = 0;
-    return Promise.all(list.map(([bx, by]) =>
-      this.pool.request<{ bx: number; by: number; ox: number; oy: number; solid: SolidGeom }>(0, 0, { type: 'overview', bx, by, nb: this.nb })
+    // download once, share with every worker, mesh in parallel
+    const raw = await fetchGz(this.manifest.overview.file);
+    for (let i = 0; i < this.pool.workers.length; i++) {
+      const copy = raw.slice().buffer;
+      this.pool.workers[i].postMessage({ type: 'overviewData', buf: copy }, [copy]);
+    }
+    return Promise.all(list.map(([bx, by], k) =>
+      this.pool.requestOn<{ bx: number; by: number; ox: number; oy: number; solid: SolidGeom }>(k, { type: 'overview', bx, by, nb: this.nb })
         .then((r) => {
           done++;
           onProgress?.(done / list.length);

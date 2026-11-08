@@ -56,6 +56,20 @@ export function meshBuilding(
   b: BuildingRec, id: number, out: SolidBuilder, heightAt: HeightSampler, ox: number, oy: number,
   lod: 0 | 1, info?: BuildingInfo[],
 ) {
+  const mk = out.mark();
+  try {
+    meshBuildingInner(b, id, out, heightAt, ox, oy, lod, info);
+  } catch {
+    out.rollback(mk);
+    return;
+  }
+  if (!out.validSince(mk)) out.rollback(mk);
+}
+
+function meshBuildingInner(
+  b: BuildingRec, id: number, out: SolidBuilder, heightAt: HeightSampler, ox: number, oy: number,
+  lod: 0 | 1, info?: BuildingInfo[],
+) {
   if (b.flags & 4 || b.flags & 8) return;
   if (b.rings.length === 0) return;
   let rings = b.rings.map((r) => cleanRing(r)).filter((r) => r.xs.length >= 3);

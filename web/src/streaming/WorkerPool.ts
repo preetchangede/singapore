@@ -20,6 +20,7 @@ export class WorkerPool {
         this.busy[i]--;
         if (m.error) p.reject(new Error(m.error)); else p.resolve(m.result);
       };
+      w.onerror = (e) => console.error('mesher worker failed to start:', e.message || e.type);
       this.workers.push(w);
       this.busy.push(0);
     }
@@ -41,6 +42,21 @@ export class WorkerPool {
       this.pending.set(id, { resolve, reject });
       this.workers[wi].postMessage({ ...msg, id });
     });
+  }
+
+  /** Send to a specific worker index (used to spread overview meshing). */
+  requestOn<T>(wi: number, msg: Record<string, unknown>): Promise<T> {
+    wi = wi % this.workers.length;
+    const id = this.nextId++;
+    this.busy[wi]++;
+    return new Promise<T>((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.workers[wi].postMessage({ ...msg, id });
+    });
+  }
+
+  broadcast(msg: Record<string, unknown>) {
+    for (const w of this.workers) w.postMessage(msg);
   }
 
   prefetch(bx: number, by: number) {

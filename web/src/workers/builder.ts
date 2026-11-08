@@ -86,6 +86,18 @@ export class SolidBuilder {
   }
   tri(a: number, b: number, c: number) { this.idx.push3(a, b, c); }
 
+  /** Snapshot sizes so a failed primitive can be rolled back. */
+  mark() { return [this.pos.n, this.nrm.n, this.fac.n, this.col.n, this.inf.n, this.bid.n, this.idx.n]; }
+  rollback(m: number[]) {
+    [this.pos.n, this.nrm.n, this.fac.n, this.col.n, this.inf.n, this.bid.n, this.idx.n] = m;
+  }
+  /** true if every position written since the mark is finite */
+  validSince(m: number[]) {
+    const a = this.pos.a;
+    for (let i = m[0]; i < this.pos.n; i++) if (!Number.isFinite(a[i])) return false;
+    return true;
+  }
+
   build() {
     return {
       position: this.pos.out(), normal: this.nrm.out(), facade: this.fac.out(), color: this.col.out(),

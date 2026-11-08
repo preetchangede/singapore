@@ -328,7 +328,7 @@ vec3 applyAerial(vec3 color, vec3 wp) {
   vec3 Ldir = skyRadiance(dir);
   vec3 inscat = Ldir * (1.0 - T) / max(1.0 - Tend, vec3(1e-3));
   // night: urban sky glow lifts the haze with sodium/LED orange
-  vec3 cityGlow = vec3(0.020, 0.012, 0.0065) * uNight * (1.0 - exp(-d * 0.18));
+  vec3 cityGlow = vec3(0.014, 0.011, 0.008) * uNight * (1.0 - exp(-d * 0.18));
   return color * T + inscat + cityGlow * uSunIntensity * 0.02;
 }
 `;
@@ -398,7 +398,7 @@ void main() {
   E *= PI / wsum;            // cosine-weighted hemisphere integral
   // moonlit sky + city skyglow ambient at night
   E += uMoonLight * 0.12 * (n.y * 0.5 + 0.5);
-  E += vec3(0.0016, 0.0011, 0.0008) * uNight * uSunIntensity * (0.6 + 0.4 * (-n.y * 0.5 + 0.5));
+  E += vec3(0.00045, 0.00038, 0.00032) * uNight * uSunIntensity * (0.6 + 0.4 * (-n.y * 0.5 + 0.5));
   fragColor = vec4(E, 1.0);
 }
 `;

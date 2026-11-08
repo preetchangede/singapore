@@ -61,7 +61,10 @@ def run():
     # 2. OSM areas in draw order
     F = pickle.load(open(CACHE / "features.pkl", "rb"))
     areas = sorted(F["areas"], key=lambda a: (GROUND[a["ground"]][3], -a.get("area", 0)))
-    shapes = [(a["geom"], a["ground"]) for a in areas if a["geom"].is_valid or True]
+    # generic zoning (residential/commercial/...) says nothing about the actual surface:
+    # let WorldCover's 10 m grass / tree / built-up classification show through instead.
+    generic = {GROUND_IDX[k] for k in ("urban", "residential", "commercial", "industrial", "institutional", "port", "military")}
+    shapes = [(a["geom"], a["ground"]) for a in areas if a["ground"] not in generic]
     cls = rasterio.features.rasterize(shapes, out=cls, transform=tr, dtype=np.uint8)
     print(f"[ground] areas in {time.time()-t0:.0f}s")
 
@@ -129,6 +132,27 @@ def run():
     sdf = np.load(CACHE / "sdf.npy")
     sea = sdf < 0
     img[sea] = np.array(hex_to_rgb("#24434c"), np.float32) / 255.0
+
+    # night lights: street lighting along roads (by class) + glow of commercial centres
+    from PIL import ImageFilter
+    W = {"motorway": 1.0, "trunk": 1.0, "primary": 0.9, "secondary": 0.8, "tertiary": 0.7, "minor": 0.5,
+         "service": 0.3, "motorway_link": 0.9, "link": 0.8, "pedestrian": 0.5, "footway": 0.18, "busway": 0.6}
+    NL = 4096
+    trn = affine_for(HALF, NL)
+    lights = np.zeros((NL, NL), np.float32)
+    for name, wgt in W.items():
+        ci = ROAD_CLASSES.index(name)
+        gs = [r["geom"].buffer(max(r["width"], 6) / 2 + 6, cap_style="flat", quad_segs=1) for r in F["roads"] if r["cls"] == ci]
+        if not gs:
+            continue
+        m = rasterio.features.rasterize([(g, 1) for g in gs], out_shape=(NL, NL), transform=trn, dtype=np.uint8, all_touched=True)
+        lights = np.maximum(lights, m * wgt)
+    dense = rasterio.features.rasterize([(r["geom"], 1) for r in B if r["cls"] in (5, 6, 11, 13, 3, 4) and not r["part"]],
+                                        out_shape=(NL, NL), transform=trn, dtype=np.uint8)
+    lights = lights + ndimage.gaussian_filter(dense.astype(np.float32), 3) * 0.6
+    lights = ndimage.gaussian_filter(lights, 0.8)
+    lights = lights.reshape(NL // 2, 2, NL // 2, 2).mean(axis=(1, 3))
+    Image.fromarray(np.clip(lights * 200, 0, 255).astype(np.uint8)).save(OUT / "ground" / "lights.jpg", quality=85, optimize=True)
 
     # downsample 2x (area) -> 4096, and 4x -> 2048
     def down(a):

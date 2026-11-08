@@ -172,9 +172,9 @@ export class Post {
     this.final = mk(FINAL_FS, {
       tScene: { value: null }, tBloom: { value: null }, uExposure: U.uExposure, uBloom: { value: 0.06 },
       uVignette: { value: 0.35 }, uGrain: { value: 0.012 }, uFade: { value: 1 }, uTime: U.uTime,
-      uSaturation: { value: 1.08 }, uContrast: { value: 1.12 }, uTint: { value: new THREE.Vector3(1, 1, 1) },
+      uSaturation: { value: 1.1 }, uContrast: { value: 1.1 }, uTint: { value: new THREE.Vector3(1, 1, 1) },
       uResolution: { value: new THREE.Vector2(1, 1) }, uFxaa: { value: 0 },
-      tAtmoParams: U.tAtmoParams, uSunDir: U.uSunDir, uSunIntensity: U.uSunIntensity, uNightFloor: { value: 0.0035 },
+      tAtmoParams: U.tAtmoParams, uSunDir: U.uSunDir, uSunIntensity: U.uSunIntensity, uNightFloor: { value: 0.011 },
     });
   }
 

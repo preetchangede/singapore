@@ -128,10 +128,20 @@ def run():
             # sub-pixel jitter so trees don't sit on a 2 m lattice
             px = tl_x + (cc + 0.5 + rng.uniform(-0.45, 0.45, len(cc))) * RES
             py = tl_y - (rr + 0.5 + rng.uniform(-0.45, 0.45, len(rr))) * RES
-            # crown radius: distance to half-height edge, approximated by allometry blended
-            # with local canopy openness
-            cover = ndimage.uniform_filter((sm > 3).astype(np.float32), 9)[rr, cc]
-            r = np.clip(0.22 * h + 1.0, 1.6, 9.5) * (1.15 - 0.3 * cover)
+            # crown radius from a Voronoi segmentation of the canopy: every canopy pixel
+            # (> 40% of the local peak height, > 2.5 m) belongs to its nearest detected peak
+            lab = np.zeros(sm.shape, np.int32)
+            lab[rr, cc] = np.arange(1, len(rr) + 1)
+            _, (ir, ic) = ndimage.distance_transform_edt(lab == 0, return_indices=True)
+            owner = lab[ir, ic]
+            peak_h = np.zeros(len(rr) + 1, np.float32)
+            peak_h[1:] = h
+            dist_px = np.hypot(ir - np.arange(sm.shape[0])[:, None], ic - np.arange(sm.shape[1])[None, :])
+            canopy = (sm > 2.5) & (sm > 0.4 * peak_h[owner]) & (dist_px * RES < 14.0)
+            area = np.bincount(owner[canopy].ravel(), minlength=len(rr) + 1)[1:] * RES * RES
+            r_seg = np.sqrt(area / np.pi)
+            r_allo = np.clip(0.22 * h + 1.0, 1.6, 9.5)
+            r = np.clip(np.where(area > 0, 0.85 * r_seg + 0.15 * r_allo, r_allo), 1.5, 12.0)
             t = np.zeros(len(h), TREE_DTYPE)
             t["x"], t["y"], t["h"], t["r"] = px, py, h, r
             all_trees.append(t)

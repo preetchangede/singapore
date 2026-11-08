@@ -42,6 +42,7 @@ out vec4 fragColor;
 uniform sampler2D tReflection;
 uniform float uReflectionOn;
 uniform vec2 uResolution;
+uniform mat4 uReflMatrix;
 ${COMMON}
 ${ATMO_PARAMS}
 ${ATMO_RUNTIME}
@@ -73,9 +74,9 @@ void main() {
   R.y = abs(R.y) + 0.002;
   vec3 refl = skyRadiance(normalize(R));
   if (uReflectionOn > 0.5) {
-    vec2 suv = gl_FragCoord.xy / uResolution;
+    vec4 rc = uReflMatrix * vec4(wp, 1.0);
     vec2 off = N.xz * 0.06 * clamp(60.0 / max(dist, 1.0), 0.15, 1.0);
-    vec4 pr = texture(tReflection, vec2(suv.x, suv.y) + off);
+    vec4 pr = texture(tReflection, rc.xy / rc.w + off);
     refl = mix(refl, pr.rgb, pr.a);
   }
   // sun glint (GGX)
@@ -88,11 +89,11 @@ void main() {
   float sh = sunShadow(wp, vec3(0.0, 1.0, 0.0), dist);
   // body colour: turbid tropical strait (green-grey), lighter + browner near the coast
   float depth = clamp(-terrainHeight(wp.xz), 0.5, 30.0);
-  vec3 deep = srgbToLinear(vec3(0.055, 0.17, 0.19));
-  vec3 shallow = srgbToLinear(vec3(0.20, 0.30, 0.25));
+  vec3 deep = srgbToLinear(vec3(0.13, 0.27, 0.29));
+  vec3 shallow = srgbToLinear(vec3(0.28, 0.37, 0.30));
   vec3 body = mix(shallow, deep, smoothstep(1.0, 14.0, depth));
   vec3 Eamb = ambientCube(vec3(0.0, 1.0, 0.0));
-  vec3 scatter = body * (sun * saturate(L.y) * sh * 0.55 + Eamb * 0.55) / PI;
+  vec3 scatter = body * (sun * saturate(L.y) * sh * 0.75 + Eamb * 0.85) / PI;
   vec3 col = mix(scatter, refl, F) + sun * spec * 0.6 * F_Schlick(vec3(0.02), saturate(dot(V, H))) / 0.02 * 0.02 * sh;
   // shoreline foam: thin lapping band
   float foam = smoothstep(4.0, 0.0, -cd) * (0.5 + 0.5 * sin(t * 1.3 + wp.x * 0.05 + wp.z * 0.04));
