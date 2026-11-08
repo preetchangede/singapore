@@ -526,7 +526,7 @@ void main() {
   float wash = smoothstep(w, w * 0.25, z) * decay * step(-L * 0.5 - 4.0, -x) * (0.45 + 0.75 * n);
   // Kelvin arms (19.5 deg) from the bow, thin and fading
   float zArm = fromBow * 0.354 + B * 0.3;
-  float arm = exp(-sq((z - zArm) / (2.5 + fromBow * 0.012))) * exp(-fromBow / (L * 2.2)) * step(0.0, fromBow);
+  float arm = exp(-sq((z - zArm) / (2.5 + fromBow * 0.02))) * exp(-fromBow / (L * 1.1)) * step(0.0, fromBow);
   arm *= 0.35 + 0.65 * fbm(vec2(fromBow * 0.06 - t * 0.3, z * 0.2));
   // bow wave hugging the hull sides
   float hullB = B * 0.5 * (1.0 - smoothstep(L * 0.3, L * 0.5, x));
