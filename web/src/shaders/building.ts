@@ -352,7 +352,8 @@ void main() {
   float sh = sunShadow(wp, N, dist);
   vec3 col = shadeSurface(albedo, N, V, rough, f0, sh, ao, wp);
   // glass: reflect the sky (and darker "city" below the horizon)
-  if (glassMask > 0.01) {
+  if (uDebug > 2.5) { fragColor = vec4(albedo * uSunIntensity * 0.1, 1.0); return; }
+  if (glassMask > 0.01 && (uDebug < 1.5 || uDebug > 2.5)) {
     vec3 R = reflect(-V, N);
     vec3 env = skyRadiance(normalize(vec3(R.x, max(R.y, 0.02), R.z)));
     float below = smoothstep(0.05, -0.15, R.y);

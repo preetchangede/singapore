@@ -27,6 +27,8 @@ export const U = {
   uTime: { value: 0 },
   uWind: { value: new THREE.Vector2(0.8, 0.3) },
   uExposure: { value: 1.12 },
+  uCloudCover: { value: 0.4 },
+  uCloudWind: { value: new THREE.Vector2(0, 0) },
 
   // terrain & ground
   tHeightNear: { value: null as THREE.Texture | null },
@@ -63,6 +65,9 @@ export const U = {
   uReflMatrix: { value: new THREE.Matrix4() },
   uReflectPass: { value: 0.0 },
   uResolution: { value: new THREE.Vector2(1, 1) },
+
+  // debug view switch (?dbg=N): 0 off, 1 no aerial, 2 no glass reflection, 3 albedo
+  uDebug: { value: 0 },
 };
 
 export type Uniforms = typeof U;

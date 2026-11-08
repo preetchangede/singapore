@@ -252,6 +252,7 @@ uniform float uHaze;             // extra low-altitude haze density multiplier
 uniform vec3 uMoonLight;         // moon illuminance (linear)
 uniform float uTime;
 uniform vec2 uWind;
+uniform float uDebug;
 
 vec2 skyViewUV(vec3 dir) {
   float vh = RG + max(uCamAltKm, 0.001);
@@ -313,6 +314,7 @@ vec3 opticalDepth(float h0, float h1, float d) {
 
 // Aerial perspective: transmittance + in-scattered light between camera and a world point.
 vec3 applyAerial(vec3 color, vec3 wp) {
+  if (uDebug > 0.5 && uDebug < 1.5) return color;
   vec3 v = wp - cameraPosition;
   float dm = length(v);
   if (dm < 1.0) return color;

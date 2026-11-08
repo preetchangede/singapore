@@ -29,14 +29,14 @@ GROUND = [
     ("farmland",     "#8e9152", 1.0, 4),
     ("cemetery",     "#7f8e5a", 1.0, 4),
     ("bare",         "#b08566", 1.0, 5),   # laterite construction sites
-    ("grass",        "#7a9a50", 1.0, 6),
+    ("grass",        "#6e8a4b", 1.0, 6),
     ("scrub",        "#68784a", 1.0, 6),
     ("wetland",      "#56704a", 1.0, 6),
     ("forest",       "#3f5a2e", 1.0, 6),
     ("sand",         "#d8c7a0", 1.0, 7),
-    ("park",         "#73964c", 1.0, 7),
-    ("golf",         "#76a24f", 0.9, 8),
-    ("pitch",        "#5e9346", 0.9, 9),
+    ("park",         "#688846", 1.0, 7),
+    ("golf",         "#6c9349", 0.9, 8),
+    ("pitch",        "#5a8743", 0.9, 9),
     ("track",        "#b25a43", 0.8, 9),
     ("court",        "#6b8f7a", 0.7, 9),
     ("parking",      "#6e6d6a", 0.7, 10),
@@ -50,8 +50,8 @@ GROUND = [
     ("water",        "#2b4a52", 0.05, 15),
     ("port",         "#8f8d88", 0.8, 3),
     ("playground",   "#b98a62", 0.9, 10),
-    ("garden",       "#6f9a4a", 1.0, 8),
-    ("schoolfield",  "#6a9a4c", 1.0, 8),
+    ("garden",       "#658a45", 1.0, 8),
+    ("schoolfield",  "#628a47", 1.0, 8),
 ]
 GROUND_IDX = {g[0]: i for i, g in enumerate(GROUND)}
 

@@ -1,5 +1,8 @@
 // Cascaded sun shadows (3 cascades in one depth atlas) + shared lighting helpers.
+import { CLOUD_COMMON } from './clouds';
+
 export const SHADOWS = /* glsl */ `
+${CLOUD_COMMON}
 uniform sampler2D tShadow;
 uniform mat4 uShadowMatrix[3];
 uniform vec4 uShadowSplits;     // cascade far distances
@@ -34,17 +37,18 @@ float shadowPCF(int i, vec3 wp, float bias) {
 }
 
 float sunShadow(vec3 wp, vec3 N, float viewDist) {
-  if (uShadowOn < 0.5) return 1.0;
+  float cs = cloudShadow(wp);
+  if (uShadowOn < 0.5) return cs;
   int i = viewDist < uShadowSplits.x ? 0 : (viewDist < uShadowSplits.y ? 1 : (viewDist < uShadowSplits.z ? 2 : 3));
-  if (i > 2) return 1.0;
+  if (i > 2) return cs;
   float slope = 1.0 - saturate(dot(N, uSunDir));
   float bias = (0.00012 + 0.0006 * slope) * (i == 0 ? 1.0 : (i == 1 ? 2.2 : 5.0));
   vec3 off = N * (0.15 + 0.6 * float(i));
   float s = shadowPCF(i, wp + off, bias);
-  if (s < 0.0) return 1.0;
+  if (s < 0.0) return cs;
   // fade the last cascade out
   float fade = i == 2 ? smoothstep(uShadowSplits.z * 0.85, uShadowSplits.z, viewDist) : 0.0;
-  return mix(s, 1.0, fade);
+  return mix(s, 1.0, fade) * cs;
 }
 `;
 

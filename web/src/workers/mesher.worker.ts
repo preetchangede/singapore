@@ -9,6 +9,7 @@ declare const self: DedicatedWorkerGlobalScope;
 let H: Float32Array;
 let HS = 2048, HHALF = 32768;
 let BASE = '';
+let EXT = '.bin';
 let HALF = 32768, TILE = 1024, TPB = 4;
 const bundles = new Map<string, Promise<Bundle | null>>();
 const bundleOrder: string[] = [];
@@ -37,7 +38,7 @@ function getBundle(bx: number, by: number): Promise<Bundle | null> {
   const key = `${bx}_${by}`;
   let p = bundles.get(key);
   if (!p) {
-    const fn = `bundles/b${String(bx).padStart(2, '0')}_${String(by).padStart(2, '0')}.bin`;
+    const fn = `bundles/b${String(bx).padStart(2, '0')}_${String(by).padStart(2, '0')}${EXT}`;
     p = fetch(BASE + fn)
       .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(String(r.status)))))
       .then((ab) => gunzip(new Uint8Array(ab)))
@@ -100,6 +101,42 @@ async function meshTile(tx: number, ty: number, what: 'ground' | 'detail') {
     const solid = S.build();
     const bridges = B.build();
     for (const g of [solid, bridges]) transfer.push(g.position.buffer, g.normal.buffer, g.facade.buffer, g.color.buffer, g.info.buffer, g.bid.buffer, g.index.buffer);
+    // traffic lanes: per road and direction a polyline with elevation and cumulative length.
+    // Singapore drives on the left, so two-way roads put each direction left of the centreline.
+    const lanes: number[] = [];
+    roads.forEach((r) => {
+      if (r.cls > 6 && r.cls !== 7 && r.cls !== 8 && r.cls !== 12) return; // motorway..service, links, busway
+      const n = r.xs.length;
+      if (n < 2) return;
+      const oneway = (r.flags & 1) !== 0;
+      const nl = Math.max(1, r.lanes || 1);
+      const perDir = oneway ? nl : Math.max(1, Math.floor(nl / 2));
+      for (const dir of oneway ? [1] : [1, -1]) {
+        for (let k = 0; k < Math.min(perDir, 4); k++) {
+          // lateral offset along the left normal of the travel direction
+          const off = oneway ? -r.width / 2 + (k + 0.5) * (r.width / nl) : (k + 0.5) * (r.width / 2 / perDir);
+          const pts: number[] = [];
+          let cum = 0;
+          for (let j = 0; j < n; j++) {
+            const i = dir > 0 ? j : n - 1 - j;
+            const ip = dir > 0 ? Math.max(0, i - 1) : Math.min(n - 1, i + 1);   // previous in travel order
+            const inx = dir > 0 ? Math.min(n - 1, i + 1) : Math.max(0, i - 1);  // next in travel order
+            const tx = r.xs[inx] - r.xs[ip], ty = r.ys[inx] - r.ys[ip];
+            const l = Math.hypot(tx, ty) || 1;
+            const x = r.xs[i] + (-ty / l) * off;
+            const y = r.ys[i] + (tx / l) * off;
+            const g = heightAt(ox + r.xs[i], oy + r.ys[i]);
+            const elev = r.elev ? g + r.elev[i] + 0.3 : g + 0.05;
+            if (pts.length) cum += Math.hypot(x - pts[pts.length - 4], y - pts[pts.length - 3]);
+            pts.push(x, y, elev, cum);
+          }
+          if (cum < 25) continue;
+          lanes.push(r.cls, pts.length / 4, ...pts);
+        }
+      }
+    });
+    const traffic = new Float32Array(lanes);
+    transfer.push(traffic.buffer);
     // water surfaces
     const [wo, wc] = b.section(ti, SECTION.water);
     const water = wc ? meshWaterSurface(readAreas(b, wo, wc, true)) : null;
@@ -121,7 +158,7 @@ async function meshTile(tx: number, ty: number, what: 'ground' | 'detail') {
       });
       transfer.push(trees.buffer);
     }
-    Object.assign(result, { solid, bridges, water, trees, info, nb });
+    Object.assign(result, { solid, bridges, water, trees, info, nb, traffic });
   }
   return { result, transfer };
 }
@@ -135,7 +172,7 @@ function setOverview(buf: ArrayBuffer) {
 
 async function loadOverview() {
   if (overview) return overview;
-  const r = await fetch(BASE + 'buildings/overview.bin');
+  const r = await fetch(BASE + 'buildings/overview' + EXT);
   const buf = await gunzip(new Uint8Array(await r.arrayBuffer()));
   const dv = new DataView(buf);
   const NB = dv.getUint8(6);
@@ -181,7 +218,7 @@ self.onmessage = async (e: MessageEvent) => {
   const m = e.data;
   try {
     if (m.type === 'init') {
-      H = m.heights; HS = m.size; HHALF = m.half; BASE = m.base;
+      H = m.heights; HS = m.size; HHALF = m.half; BASE = m.base; EXT = m.ext || '.bin';
       HALF = m.frame.half; TILE = m.frame.tile; TPB = m.frame.tilesPerBundle;
       self.postMessage({ type: 'ready' });
     } else if (m.type === 'mesh') {

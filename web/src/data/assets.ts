@@ -16,6 +16,8 @@ export interface Manifest {
   labels: string;
   search: string;
   heightModel: { rmse: number; mae: number; median_rel: number; n_train: number };
+  /** extension used for binary data files ('.bin' normally; some hosts only serve standard web types) */
+  binExt?: string;
   attribution: string[];
 }
 

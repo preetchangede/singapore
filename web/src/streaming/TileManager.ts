@@ -12,7 +12,7 @@ export interface GroundLayers { areas: FlatGeom; water: FlatGeom; foot: FlatGeom
 export interface DetailTile {
   key: string; tx: number; ty: number; ox: number; oy: number;
   buildings: THREE.Mesh | null; bridges: THREE.Mesh | null; water: THREE.Mesh | null;
-  trees: Float32Array | null; info: BuildingInfo[]; bid: Uint16Array | null;
+  trees: Float32Array | null; info: BuildingInfo[]; bid: Uint16Array | null; traffic: Float32Array | null;
 }
 export interface GroundTile { key: string; tx: number; ty: number; ox: number; oy: number; layers: GroundLayers }
 
@@ -50,7 +50,7 @@ export class TileManager {
     this.half = f.half; this.tile = f.tile; this.tpb = f.tilesPerBundle; this.nb = f.nb;
     this.pool.init({
       heights: heights.slice(), size: manifest.terrain.near.size, half: manifest.terrain.near.half,
-      base: DATA_BASE, frame: f,
+      base: DATA_BASE, frame: f, ext: manifest.binExt || '.bin',
     });
     for (const [bx, by] of manifest.bundles) this.bundleSet.add(`${bx}_${by}`);
     this.group.add(this.overviewGroup);
@@ -158,7 +158,7 @@ export class TileManager {
       this.onGround(t);
       return;
     }
-    const t: DetailTile = { key, tx: r.tx, ty: r.ty, ox: r.ox, oy: r.oy, buildings: null, bridges: null, water: null, trees: r.trees, info: r.info, bid: null };
+    const t: DetailTile = { key, tx: r.tx, ty: r.ty, ox: r.ox, oy: r.oy, buildings: null, bridges: null, water: null, trees: r.trees, info: r.info, bid: null, traffic: r.traffic ?? null };
     if (r.solid && r.solid.index.length) {
       const m = new THREE.Mesh(solidGeometry(r.solid), this.buildingMat);
       m.position.set(r.ox, 0, -r.oy);

@@ -45,6 +45,7 @@ export class Clipmap {
   private rect = { value: new THREE.Vector3() };
 
   constructor(private renderer: THREE.WebGLRenderer, res = 2048, extents = [640, 2560, 10240]) {
+    if (res < 2048) extents = extents.map((e, i) => (i === 0 ? e * 0.75 : e));
     const maxAniso = renderer.capabilities.getMaxAnisotropy();
     extents.forEach((extent, i) => {
       const rt = new THREE.WebGLRenderTarget(res, res, {

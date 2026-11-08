@@ -3,7 +3,7 @@
 //   artifact/assets/*     worker chunk(s)
 //   artifact/data/**      map data
 // and print a files map for publishing.
-import { readFileSync, writeFileSync, mkdirSync, cpSync, rmSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, cpSync, rmSync, readdirSync, statSync, renameSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const root = new URL('..', import.meta.url).pathname;
@@ -26,6 +26,26 @@ for (const f of readdirSync(join(dist, 'assets'))) {
   js = js.replaceAll(`"${f}"`, `"assets/${f}"`).replaceAll(`'${f}'`, `'assets/${f}'`);
 }
 cpSync(join(dist, 'data'), join(out, 'data'), { recursive: true });
+
+// The artifact host serves only standard web media types. Opaque gzip'd binaries are
+// shipped with the .wasm extension (served byte-exact as application/wasm); the
+// client reads the extension from the manifest, and fetch().arrayBuffer() is type-agnostic.
+const renameBins = (d) => {
+  for (const f of readdirSync(d)) {
+    const p = join(d, f);
+    if (statSync(p).isDirectory()) renameBins(p);
+    else if (f.endsWith('.bin')) renameSync(p, p.slice(0, -4) + '.wasm');
+  }
+};
+renameBins(join(out, 'data'));
+const manPath = join(out, 'data', 'manifest.json');
+const man = JSON.parse(readFileSync(manPath, 'utf8'));
+const fix = (v) => (typeof v === 'string' && v.endsWith('.bin') ? v.slice(0, -4) + '.wasm' : v);
+for (const k of Object.keys(man.terrain)) man.terrain[k].file = fix(man.terrain[k].file);
+man.overview.file = fix(man.overview.file);
+man.search = fix(man.search);
+man.binExt = '.wasm';
+writeFileSync(manPath, JSON.stringify(man));
 
 const fonts = 'https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;1,6..72,400&display=swap';
 const page = `<title>Singapore Reconstructed</title>
@@ -51,7 +71,7 @@ const walk = (d) => {
     else {
       const rel = relative(out, p);
       if (rel === 'index.html') continue;
-      files[rel] = rel.endsWith('.bin') ? { from: p, contentType: 'application/octet-stream' } : p;
+      files[rel] = p;
     }
   }
 };

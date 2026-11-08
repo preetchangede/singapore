@@ -68,6 +68,8 @@ async function boot() {
     loader.remove();
     if (params.get('ui')) ui.show();
     await app.settle(90000);
+    if (params.has('noclouds')) app.clouds.enabled = false;
+    if (params.get('dbg')) { const { U } = await import('./core/uniforms'); U.uDebug.value = Number(params.get('dbg')); }
     if (params.has('night0')) { const { U } = await import('./core/uniforms'); U.uNight.value = 0; }
     for (let i = 0; i < Number(params.get('frames')); i++) app.frame();
     if (params.has('debugatmo')) {

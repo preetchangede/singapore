@@ -14,6 +14,9 @@ import { Shadows } from './world/Shadows';
 import { Trees } from './world/Trees';
 import { Reflection } from './world/Reflection';
 import { Landmarks } from './world/Landmarks';
+import { Clouds } from './world/Clouds';
+import { Traffic } from './world/Traffic';
+import { Tier, detectTier, Governor } from './core/Quality';
 import {
   Manifest, loadManifest, fetchGz, decodeHeights, heightTexture, byteTexture, loadImageTexture, HeightField,
 } from './data/assets';
@@ -37,6 +40,8 @@ export class App {
   trees!: Trees;
   reflection: Reflection;
   landmarks!: Landmarks;
+  clouds!: Clouds;
+  traffic!: Traffic;
   private shadowMat = makeShadowMaterial();
   manifest!: Manifest;
   heights!: HeightField;
@@ -47,6 +52,8 @@ export class App {
   private frameHooks: ((dt: number) => void)[] = [];
   private beforeRender: ((dt: number) => void)[] = [];
   fps = 60;
+  tier: Tier;
+  governor: Governor;
   private frameTimes: number[] = [];
   running = false;
 
@@ -59,11 +66,16 @@ export class App {
     this.renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
     this.renderer.toneMapping = THREE.NoToneMapping;
     this.renderer.setClearColor(0x000000, 1);
+    this.tier = detectTier(this.renderer);
+    this.renderScale = this.tier.scale;
+    this.governor = new Governor(this.tier, (s) => this.setRenderScale(s));
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.5, 2.0e6);
     this.controller = new CameraController(this.camera, canvas);
     this.post = new Post(this.renderer);
     this.atmosphere = new Atmosphere(this.renderer);
     this.reflection = new Reflection(this.renderer);
+    this.reflection.enabled = this.tier.reflection > 0;
+    this.reflection.scale = this.tier.reflection || 0.5;
     this.atmosphere.setHaze(2.4, 1.6);
     this.atmosphere.bake();
     U.uShadowOn.value = 0;
@@ -127,21 +139,34 @@ export class App {
     this.scene.add(this.sky.mesh, this.terrain.mesh, this.ocean.mesh);
     this.tiles = new TileManager(m, hn);
     this.scene.add(this.tiles.group);
-    this.clipmap = new Clipmap(this.renderer);
+    this.tiles.detailRadius = this.tier.detailRadius;
+    this.clipmap = new Clipmap(this.renderer, this.tier.clipRes);
     this.tiles.onGround = (t) => this.clipmap.addTile(t);
-    this.shadows = new Shadows(this.renderer, 2048);
+    this.shadows = new Shadows(this.renderer, Math.max(this.tier.shadowSize, 512));
+    this.shadows.enabled = this.tier.shadowSize > 0;
     this.trees = new Trees();
+    this.trees.density = this.tier.treeDensity;
+    this.trees.range = this.tier.treeRange;
     this.scene.add(this.trees.group);
     U.uTreeRange.value = this.trees.range;
+    this.traffic = new Traffic();
+    this.traffic.density = this.tier.name === 'low' ? 0.5 : 1;
+    this.traffic.range = this.tier.name === 'low' ? 800 : 1300;
+    this.scene.add(this.traffic.group);
     this.tiles.onDetail = (t) => {
       this.shadows.version++;
       if (t.trees) this.trees.addTile(t.key, t.trees, t.ox, t.oy);
+      this.traffic.addTile(t.key, t.traffic, t.ox, t.oy);
     };
     this.tiles.onDetailRemoved = (t) => {
       this.shadows.version++;
       this.trees.removeTile(t.key);
+      this.traffic.removeTile(t.key);
     };
     this.shadowHooks.push((on) => this.trees.setDepthMode(on));
+    this.clouds = new Clouds(this.renderer);
+    this.clouds.scale = this.tier.name === 'low' ? 0.25 : this.tier.name === 'ultra' ? 0.45 : 0.33;
+    this.clouds.steps = this.tier.name === 'low' ? 28 : this.tier.name === 'medium' ? 40 : 56;
     this.landmarks = new Landmarks((x, z) => this.controller.heightAt(x, z));
     await this.landmarks.load();
     this.scene.add(this.landmarks.group);
@@ -153,6 +178,7 @@ export class App {
     loadImageTexture('ground/lights.jpg').then((t) => { t.colorSpace = THREE.NoColorSpace; t.needsUpdate = true; U.tNightLights.value = t; }).catch(() => {});
     // compile shaders up-front so the intro doesn't stutter
     this.resize();
+    this.clouds.setSize(this.hdr.width, this.hdr.height);
     progress(0.97, 'Warming up');
     this.time.update(0);
     this.atmosphere.update(500);
@@ -166,7 +192,7 @@ export class App {
 
   resize() {
     const w = window.innerWidth, h = window.innerHeight;
-    this.pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    this.pixelRatio = Math.min(window.devicePixelRatio || 1, this.tier.dprCap);
     this.renderer.setPixelRatio(this.pixelRatio * this.renderScale);
     this.renderer.setSize(w, h, false);
     this.canvas.style.width = w + 'px';
@@ -176,11 +202,16 @@ export class App {
     const bw = Math.max(1, Math.round(w * this.pixelRatio * this.renderScale));
     const bh = Math.max(1, Math.round(h * this.pixelRatio * this.renderScale));
     if (this.hdr) this.hdr.dispose();
+    const depth = new THREE.DepthTexture(bw, bh, THREE.FloatType);
+    depth.minFilter = THREE.NearestFilter;
+    depth.magFilter = THREE.NearestFilter;
     this.hdr = new THREE.WebGLRenderTarget(bw, bh, {
-      type: THREE.HalfFloatType, depthBuffer: true, stencilBuffer: false, samples: 4,
-      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false,
+      type: THREE.HalfFloatType, depthBuffer: true, stencilBuffer: false, samples: this.tier.msaa,
+      minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false, depthTexture: depth,
     });
+    this.clouds?.setSize(bw, bh);
     this.post.setSize(bw, bh);
+    this.post.final.uniforms.uFxaa.value = this.tier.msaa > 0 ? 0 : 1;
     this.reflection.setSize(bw, bh);
     U.uResolution.value.set(bw, bh);
   }
@@ -204,12 +235,17 @@ export class App {
   }
 
   frame(render = true) {
-    const dt = Math.min(this.clock.getDelta(), 0.1);
+    const raw = this.clock.getDelta();
+    const dt = Math.min(raw, 0.1);
     U.uTime.value += dt;
+    if (this.running && document.visibilityState === 'visible') this.governor.frame(raw);
     this.frameTimes.push(dt);
     if (this.frameTimes.length > 60) this.frameTimes.shift();
     this.fps = this.frameTimes.length / this.frameTimes.reduce((a, b) => a + b, 0);
     this.time.update(dt);
+    // light inter-monsoon breeze moving the cloud field
+    U.uCloudWind.value.x += dt * 4.0;
+    U.uCloudWind.value.y += dt * 1.6;
     this.controller.update(dt);
     for (const f of this.frameHooks) f(dt);
     // near plane adapts to altitude for depth precision on non-reversed-Z devices
@@ -222,6 +258,7 @@ export class App {
     this.terrain.update(this.camera);
     this.tiles.update(this.camera, alt);
     this.trees.update(this.camera);
+    this.traffic.update(U.uTime.value, this.camera, this.time.hour);
     buildingUniforms.uHour.value = this.time.hour;
     this.landmarks.update(U.uTime.value, this.time.hour);
     if (!render) return;
@@ -236,6 +273,7 @@ export class App {
     for (const f of this.beforeRender) f(dt);
     this.renderer.setRenderTarget(this.hdr);
     this.renderer.render(this.scene, this.camera);
+    this.clouds.render(this.camera, this.hdr.depthTexture!, this.hdr, this.reversedDepth);
     this.post.render(this.hdr.texture);
   }
 

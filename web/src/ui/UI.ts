@@ -410,7 +410,7 @@ export class UI {
       this.input.value = '';
       this.renderPlaces();
       setTimeout(() => this.input.focus(), 30);
-      if (!this.search) fetchGz('search.bin').then((b) => { this.search = JSON.parse(new TextDecoder().decode(b)); }).catch(() => {});
+      if (!this.search) fetchGz(this.app.manifest.search).then((b) => { this.search = JSON.parse(new TextDecoder().decode(b)); }).catch(() => {});
     } else {
       this.input.blur();
     }

@@ -9,6 +9,7 @@ export class TimeOfDay {
   rate = 0;                    // hours per real second (0 = frozen)
   live = false;                // follow the real clock in Singapore
   sunEl = 0;
+  cloudBase = 0.32;
   private lastKey = '';
   onChange: () => void = () => {};
 
@@ -50,6 +51,9 @@ export class TimeOfDay {
     const h = this.hour;
     const morning = Math.exp(-sq((h - 7.5) / 2.2));
     U.uHaze.value = 1.6 + 1.6 * morning + 0.6 * night;
+    // scattered cumulus: clearer mornings, convective build-up through the afternoon
+    const afternoon = Math.exp(-sq((h - 15.5) / 3.2));
+    U.uCloudCover.value = this.cloudBase + 0.22 * afternoon - 0.08 * morning;
     this.onChange();
   }
 
